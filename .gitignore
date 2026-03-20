@@ -1,0 +1,16 @@
+build/
+.vs/
+*.user
+*.VC.db
+*.VC.opendb
+
+# Point cloud data files (large, not for VCS)
+data/*.txt
+data/*.pcd
+data/*.ply
+data/*.cache.pcd
+
+# Result outputs (generated, not for VCS)
+result/*.ply
+result/*.json
+result/

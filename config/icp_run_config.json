@@ -1,0 +1,45 @@
+{
+  "input": {
+    "source_cloud": "./data/left_1_sv_mixtif_sv - Cloud.txt",
+    "target_cloud": "./data/right_1_sv_mixtif_sv - Cloud.txt"
+  },
+  "preprocess": {
+    "enable_txt_cache": true,
+    "filter_leaf_size": 0.6,
+    "mirror_axes": "x"
+  },
+  "pipeline": {
+    "run_coarse": true,
+    "run_refine": true
+  },
+  "coarse_registration": {
+    "method": 1,
+    "voxel_size": 0.0,
+    "max_correspondence_distance": 8.0,
+    "max_iterations": 120,
+    "use_initial_guess": false,
+    "initial_transform_json": ""
+  },
+  "refine_registration": {
+    "method": 2,
+    "voxel_size": 0.3,
+    "max_correspondence_distance": 2.5,
+    "max_iterations": 140,
+    "use_initial_guess": true,
+    "initial_transform_json": ""
+  },
+  "evaluation": {
+    "enabled": true,
+    "stages": [
+      "coarse",
+      "refine"
+    ],
+    "max_sample_points": 50000
+  },
+  "output": {
+    "result_dir": "./result",
+    "transformed_source_cloud": "transformed_source_by_registration.ply",
+    "result_json": "registration_result.json",
+    "initial_transform_json": "initial_transform_for_icp.json"
+  }
+}
