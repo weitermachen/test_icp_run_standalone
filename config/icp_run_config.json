@@ -1,11 +1,11 @@
 {
   "input": {
-    "source_cloud": "./data/left_1_sv_mixtif_sv - Cloud.txt",
-    "target_cloud": "./data/right_1_sv_mixtif_sv - Cloud.txt"
+    "source_cloud": "./data/left_8_sv - Cloud.txt",
+    "target_cloud": "./data/right_8_sv - Cloud.txt"
   },
   "preprocess": {
     "enable_txt_cache": true,
-    "filter_leaf_size": 0.6,
+    "filter_leaf_size": 0.25,
     "mirror_axes": "x"
   },
   "pipeline": {
@@ -13,18 +13,18 @@
     "run_refine": true
   },
   "coarse_registration": {
-    "method": 1,
-    "voxel_size": 0.0,
-    "max_correspondence_distance": 8.0,
-    "max_iterations": 120,
+    "method": 0,
+    "voxel_size": 0.2,
+    "max_correspondence_distance": 50.0,
+    "max_iterations": 260,
     "use_initial_guess": false,
     "initial_transform_json": ""
   },
   "refine_registration": {
     "method": 2,
-    "voxel_size": 0.3,
-    "max_correspondence_distance": 2.5,
-    "max_iterations": 140,
+    "voxel_size": 0.08,
+    "max_correspondence_distance": 0.35,
+    "max_iterations": 220,
     "use_initial_guess": true,
     "initial_transform_json": ""
   },
@@ -34,7 +34,7 @@
       "coarse",
       "refine"
     ],
-    "max_sample_points": 50000
+    "max_sample_points": 80000
   },
   "output": {
     "result_dir": "./result",

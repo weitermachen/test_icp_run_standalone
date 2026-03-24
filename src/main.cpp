@@ -30,6 +30,83 @@
 #include "HVCloudPairICP.h"
 #include "HVUtils.h"
 
+// 日志类：同时向文件和控制台输出
+class DualStreambuf : public std::streambuf {
+public:
+    DualStreambuf(std::ostream& file, std::streambuf* console_buf)
+        : file_(file), console_buf_(console_buf) {}
+
+protected:
+    virtual std::streamsize xsputn(const char* s, std::streamsize n) override {
+        file_.write(s, n);
+        file_.flush();
+        console_buf_->sputn(s, n);
+        return n;
+    }
+
+    virtual int overflow(int c) override {
+        if (c != EOF) {
+            file_.put(c);
+            file_.flush();
+            console_buf_->sputc(c);
+        }
+        return c;
+    }
+
+private:
+    std::ostream& file_;
+    std::streambuf* console_buf_;
+};
+
+// RAII 日志管理器
+class LogManager {
+public:
+    LogManager()
+        : cout_backup_(nullptr)
+        , cerr_backup_(nullptr)
+        , dual_cout_(nullptr)
+        , dual_cerr_(nullptr) {
+        std::error_code ec;
+        const std::filesystem::path result_dir = std::filesystem::path("result");
+        std::filesystem::create_directories(result_dir, ec);
+
+        if (ec) {
+            return;
+        }
+
+        log_file_.open(result_dir / "log.txt", std::ios::out | std::ios::trunc);
+        if (log_file_.is_open()) {
+            cout_backup_ = std::cout.rdbuf();
+            cerr_backup_ = std::cerr.rdbuf();
+            dual_cout_ = new DualStreambuf(log_file_, cout_backup_);
+            dual_cerr_ = new DualStreambuf(log_file_, cerr_backup_);
+            std::cout.rdbuf(dual_cout_);
+            std::cerr.rdbuf(dual_cerr_);
+        }
+    }
+    
+    ~LogManager() {
+        if (log_file_.is_open()) {
+            std::cout.rdbuf(cout_backup_);
+            std::cerr.rdbuf(cerr_backup_);
+            log_file_ << "\n=== Logging completed ===" << std::endl;
+            log_file_.close();
+            delete dual_cout_;
+            delete dual_cerr_;
+            std::cout << "Log saved to: result/log.txt" << std::endl;
+        }
+    }
+    
+    bool IsOpen() const { return log_file_.is_open(); }
+
+private:
+    std::ofstream log_file_;
+    std::streambuf* cout_backup_;
+    std::streambuf* cerr_backup_;
+    DualStreambuf* dual_cout_;
+    DualStreambuf* dual_cerr_;
+};
+
 namespace {
 
 using PCLCloud = pcl::PointCloud<pcl::PointXYZ>;
@@ -943,6 +1020,27 @@ void MirrorCloudByNegatingX(PCLCloudPtr& cloud, const MirrorAxes& axes) {
             point.z = -point.z;
         }
     }
+
+    std::error_code ec;
+    const std::filesystem::path mirror_result_dir = std::filesystem::path("result");
+    std::filesystem::create_directories(mirror_result_dir, ec);
+    if (ec) {
+        std::cerr << "Failed to create mirror result directory: "
+                  << mirror_result_dir.string() << std::endl;
+        return;
+    }
+
+    const std::string axis_text = MirrorAxesToString(axes);
+    const std::filesystem::path mirror_cloud_path =
+        mirror_result_dir / ("mirrored_source_" + axis_text + ".ply");
+
+    std::string save_error;
+    if (!SavePCLCloudAsPly(cloud, mirror_cloud_path, save_error)) {
+        std::cerr << "Save mirrored source cloud failed: " << save_error << std::endl;
+        return;
+    }
+
+    std::cout << "Saved mirrored source cloud: " << mirror_cloud_path.string() << std::endl;
 }
 
 void InvertRigidTransform(const double rotation[3][3],
@@ -1317,6 +1415,9 @@ bool ShouldEvaluateStage(const EvaluationConfig& evaluation,
 
 int main(int argc, char** argv) {
     EnsureWorkingDirectoryAtProjectRoot(argc, argv);
+
+    // 创建日志管理器，自动处理日志文件的开启和关闭
+    LogManager log_manager;
 
     const std::filesystem::path config_path = ResolveConfigPath(argc, argv);
     AppConfig config;
