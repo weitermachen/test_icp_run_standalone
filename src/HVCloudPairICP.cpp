@@ -1,3 +1,6 @@
+// Author: weitermachen
+// Time: 2026-03-24
+
 #include "HVCloudPairICP.h"
 
 #include "HVUtils.h"
@@ -12,37 +15,37 @@
 namespace {
 
 const hvi18n::Dictionary kTexts = {
-    { "algorithm.display", { "双点云 ICP 配准", "Pair cloud ICP registration" } },
-    { "output.aligned_target", { "配准后目标点云", "aligned target cloud" } },
-    { "output.merged_cloud", { "融合点云", "merged cloud" } },
-    { "output.result_json", { "配准结果 JSON", "registration result json" } },
+    { "algorithm.display", { "Pair cloud ICP registration", "Pair cloud ICP registration" } },
+    { "output.aligned_target", { "aligned target cloud", "aligned target cloud" } },
+    { "output.merged_cloud", { "merged cloud", "merged cloud" } },
+    { "output.result_json", { "registration result json", "registration result json" } },
     { "option.icp", { "ICP", "ICP" } },
     { "option.gicp", { "GICP", "GICP" } },
     { "option.lp_icp", { "LP-ICP", "LP-ICP" } },
-    { "msg.source_null", { "源点云为空", "Source cloud is null" } },
-    { "msg.target_null", { "目标点云为空", "Target cloud is null" } },
-    { "msg.cloud_too_small", { "点云点数过少，无法进行配准", "Point cloud has too few points for registration" } },
-    { "msg.invalid_distance", { "最大对应距离必须大于 0", "Max correspondence distance must be greater than 0" } },
-    { "msg.invalid_iterations", { "最大迭代次数必须大于 0", "Max iterations must be greater than 0" } },
-    { "msg.invalid_init_json", { "初始变换 JSON 解析失败", "Failed to parse initial transform json" } },
-    { "msg.registration_failed", { "点云配准失败", "Point cloud registration failed" } },
-    { "msg.success", { "点云配准成功", "Point cloud registration succeeded" } },
-    { "name.0", { "源点云", "source cloud" } },
-    { "name.1", { "目标点云", "target cloud" } },
-    { "name.2", { "配准方法", "registration method" } },
-    { "name.3", { "体素下采样尺寸", "voxel size" } },
-    { "name.4", { "最大对应点距离", "max correspondence distance" } },
-    { "name.5", { "最大迭代次数", "max iterations" } },
-    { "name.6", { "使用初始位姿", "use initial guess" } },
-    { "name.7", { "初始变换 JSON", "initial transform json" } },
-    { "desc.0", { "作为基准参考的源点云", "Source point cloud used as registration reference" } },
-    { "desc.1", { "待对齐到源点云的目标点云", "Target point cloud to be aligned to source cloud" } },
-    { "desc.2", { "配准算法类型", "Point cloud registration algorithm type" } },
-    { "desc.3", { "预处理体素下采样尺寸，<=0 表示不下采样", "Voxel size for preprocessing. <= 0 means disabled" } },
-    { "desc.4", { "对应点搜索的最大距离阈值", "Maximum distance threshold for correspondence search" } },
-    { "desc.5", { "迭代优化的最大轮数", "Maximum number of optimization iterations" } },
-    { "desc.6", { "是否使用外部提供的初始变换矩阵", "Whether to use an externally provided initial transform" } },
-    { "desc.7", { "4x4 初始变换矩阵 JSON，支持 {\"matrix\":[...]} 或直接二维数组", "4x4 initial transform matrix json. Supports {\"matrix\":[...]} or a direct 2D array" } }
+    { "msg.source_null", { "Source cloud is null", "Source cloud is null" } },
+    { "msg.target_null", { "Target cloud is null", "Target cloud is null" } },
+    { "msg.cloud_too_small", { "Point cloud has too few points for registration", "Point cloud has too few points for registration" } },
+    { "msg.invalid_distance", { "Max correspondence distance must be greater than 0", "Max correspondence distance must be greater than 0" } },
+    { "msg.invalid_iterations", { "Max iterations must be greater than 0", "Max iterations must be greater than 0" } },
+    { "msg.invalid_init_json", { "Failed to parse initial transform json", "Failed to parse initial transform json" } },
+    { "msg.registration_failed", { "Point cloud registration failed", "Point cloud registration failed" } },
+    { "msg.success", { "Point cloud registration succeeded", "Point cloud registration succeeded" } },
+    { "name.0", { "source cloud", "source cloud" } },
+    { "name.1", { "target cloud", "target cloud" } },
+    { "name.2", { "registration method", "registration method" } },
+    { "name.3", { "voxel size", "voxel size" } },
+    { "name.4", { "max correspondence distance", "max correspondence distance" } },
+    { "name.5", { "max iterations", "max iterations" } },
+    { "name.6", { "use initial guess", "use initial guess" } },
+    { "name.7", { "initial transform json", "initial transform json" } },
+    { "desc.0", { "Source point cloud used as registration reference", "Source point cloud used as registration reference" } },
+    { "desc.1", { "Target point cloud to be aligned to source cloud", "Target point cloud to be aligned to source cloud" } },
+    { "desc.2", { "Point cloud registration algorithm type", "Point cloud registration algorithm type" } },
+    { "desc.3", { "Voxel size for preprocessing. <= 0 means disabled", "Voxel size for preprocessing. <= 0 means disabled" } },
+    { "desc.4", { "Maximum distance threshold for correspondence search", "Maximum distance threshold for correspondence search" } },
+    { "desc.5", { "Maximum number of optimization iterations", "Maximum number of optimization iterations" } },
+    { "desc.6", { "Whether to use an externally provided initial transform", "Whether to use an externally provided initial transform" } },
+    { "desc.7", { "4x4 initial transform matrix json. Supports {\"matrix\":[...]} or a direct 2D array", "4x4 initial transform matrix json. Supports {\"matrix\":[...]} or a direct 2D array" } }
 };
 
 std::string Tr(int language, const std::string& key) {
@@ -500,3 +503,4 @@ extern "C" __declspec(dllexport) std::string GetInstanceName() {
 extern "C" __declspec(dllexport) int GetNodeEngineAbiVersion() {
     return NODE_ENGINE_ABI_VERSION;
 }
+

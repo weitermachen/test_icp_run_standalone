@@ -1,3 +1,6 @@
+// Author: weitermachen
+// Time: 2026-03-24
+
 #include "HVI18n.h"
 
 namespace hvi18n {
@@ -53,3 +56,4 @@ std::string TranslateFormat(
 }
 
 }  // namespace hvi18n
+

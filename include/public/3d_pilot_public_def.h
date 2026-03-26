@@ -1,4 +1,7 @@
-﻿#pragma once
+// Author: weitermachen
+// Time: 2026-03-24
+
+#pragma once
 
 #include <windows.h>
 
@@ -215,3 +218,4 @@ struct NodeResultGlobalInfo
     {
     }
 };
+

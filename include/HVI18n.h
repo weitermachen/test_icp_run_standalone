@@ -1,3 +1,6 @@
+// Author: weitermachen
+// Time: 2026-03-24
+
 #pragma once
 
 #include <string>
@@ -25,3 +28,4 @@ std::string TranslateFormat(
     const std::vector<std::pair<std::string, std::string>>& replacements);
 
 }  // namespace hvi18n
+

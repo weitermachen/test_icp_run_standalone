@@ -1,4 +1,7 @@
-﻿#pragma once
+// Author: weitermachen
+// Time: 2026-03-24
+
+#pragma once
 
 #include "public/3d_pilot_public_def.h"
 #include "public/param_meta_data.h"
@@ -156,3 +159,4 @@ private:
     // 画布集合
     std::map<int, std::shared_ptr<Canvas>> canvas_table_;
 };
+

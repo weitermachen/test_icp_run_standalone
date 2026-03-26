@@ -1,4 +1,7 @@
-﻿#pragma once
+// Author: weitermachen
+// Time: 2026-03-24
+
+#pragma once
 
 #define SUCCESS                                         0
 
@@ -31,3 +34,4 @@
 #define GLOBAL_VAR_BIND_CONFLICT                        -44
 #define GLOBAL_VAR_IO_ERROR                             -45
 #define GLOBAL_VAR_ASSIGN_PARSE_ERROR                   -46
+

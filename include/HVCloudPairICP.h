@@ -1,4 +1,7 @@
-﻿#pragma once
+// Author: weitermachen
+// Time: 2026-03-24
+
+#pragma once
 
 #include "node_engine.h"
 #include "3d_pliot_error.h"
@@ -79,3 +82,4 @@ private:
 extern "C" __declspec(dllexport) NodeEngine* CreateInstance();
 extern "C" __declspec(dllexport) std::string GetInstanceName();
 extern "C" __declspec(dllexport) int GetNodeEngineAbiVersion();
+

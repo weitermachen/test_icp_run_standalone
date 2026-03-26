@@ -1,4 +1,7 @@
-﻿#include "HVUtils.h"
+// Author: weitermachen
+// Time: 2026-03-24
+
+#include "HVUtils.h"
 
 #include <cmath>
 
@@ -532,3 +535,4 @@ bool CropPointCloudByGeometry<open3d::geometry::PointCloud>(
 
     return true;
 }
+

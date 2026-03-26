@@ -1,4 +1,7 @@
-﻿#pragma once
+// Author: weitermachen
+// Time: 2026-03-24
+
+#pragma once
 
 #include "3d_pilot_data_define.h"
 
@@ -632,3 +635,4 @@ private:
         }
     }
 };
+

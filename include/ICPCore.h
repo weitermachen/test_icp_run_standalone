@@ -1,4 +1,7 @@
-﻿#pragma once
+// Author: weitermachen
+// Time: 2026-03-24
+
+#pragma once
 
 #include <Eigen/Dense>
 #include <pcl/point_cloud.h>
@@ -31,3 +34,4 @@ bool ParseTransformJson(const std::string& json_str, Eigen::Matrix4f& transform,
 ICPResult RunPairRegistration(const pcl::PointCloud<pcl::PointXYZ>::Ptr& source,
                               const pcl::PointCloud<pcl::PointXYZ>::Ptr& target,
                               const ICPParams& params);
+

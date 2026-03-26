@@ -6,6 +6,17 @@
 
 {
   // ============================================================================
+  // 第0部分: run_mode - 运行模式（功能隔离开关）
+  // ============================================================================
+  // registration: 使用原有配准流程（input + preprocess + pipeline + coarse/refine）
+  // fusion:       使用多位姿联合优化融合流程（读取result下多个registration_result.json作为初值）
+  //
+  // 重要: 两种模式互斥。
+  // - run_mode=registration 时，不执行融合功能
+  // - run_mode=fusion 时，不执行原始配准流程
+  "run_mode": "registration",
+
+  // ============================================================================
   // 第1部分: input - 输入点云配置
   // ============================================================================
   "input": {
@@ -43,6 +54,23 @@
     // - 1.0: 更激进的降采样，仅用于超大型点云(>500万)加快速度
     // ★ 设置 <=0 会跳过降采样，直接用原始点云做Stage-1 (不推荐)
     "filter_leaf_size": 0.6,
+
+    // 统计离群点滤波（新增）
+    // 用于剔除source/target中的噪点，提升标定稳定性与精度。
+    // 算法: StatisticalOutlierRemoval
+    "noise_filter": {
+      // 是否启用离群点滤波
+      "enabled": true,
+
+      // 每个点用于统计邻域均值距离的邻居数
+      // 推荐范围: 10~50
+      "mean_k": 20,
+
+      // 标准差倍数阈值
+      // 越小越严格（剔除更多点），越大越宽松
+      // 推荐范围: 0.8~2.0
+      "stddev_mul_thresh": 1.0
+    },
 
     // 对源点云进行坐标轴镜像反转 (用于解决扫描设备坐标系不统一)
     // 支持三种格式:
@@ -310,6 +338,50 @@
     //      并设置 use_initial_guess=true
     //   4. 重新运行，本次会从上次结果开始微调
     "initial_transform_json": "initial_transform_for_icp.json"
+  },
+
+  // ============================================================================
+  // 第8部分: fusion - 多位姿标定联合优化配置（仅 run_mode=fusion 生效）
+  // ============================================================================
+  "fusion": {
+    // 待融合候选标定所在目录
+    // 程序会递归查找该目录下所有名为 registration_result.json 的文件
+    "candidate_result_dir": "./result",
+
+    // 原始点云目录
+    // source 按 left_序号* 匹配；target 按 right_序号* 或 rigth_序号* 匹配
+    "data_dir": "./data",
+
+    // 融合输出文件名（写入 candidate_result_dir 下）
+    "output_json": "fused_registration_result.json",
+
+    // 每个位姿评估时 source 点云最大采样点数
+    "max_sample_points_per_pair": 50000,
+
+    // 截尾比例 [0, 0.5)
+    // 例如0.1表示丢弃误差最大的10%点，增强抗离群能力
+    "trim_ratio": 0.1,
+
+    // Refine Evaluation 的 rmse 阈值（新增）
+    // 从每个候选目录的 log.txt 中读取 "[Stage-2 Refine Evaluation] ... rmse=..."
+    // 若该值 > max_refine_rmse，则跳过该候选标定文件
+    // <=0 表示关闭此过滤逻辑
+    "max_refine_rmse": 0.5,
+
+    // 联合优化最大迭代次数
+    "optimization_max_iterations": 40,
+
+    // 旋转步长（角度，单位degree）
+    "optimization_rotation_step_deg": 0.5,
+
+    // 平移步长（单位与点云坐标一致，通常mm）
+    "optimization_translation_step": 0.5,
+
+    // 最小旋转步长（degree）
+    "optimization_min_rotation_step_deg": 0.005,
+
+    // 最小平移步长
+    "optimization_min_translation_step": 0.01
   }
 }
 

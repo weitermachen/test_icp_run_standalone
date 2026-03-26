@@ -1,4 +1,7 @@
-﻿#pragma once
+// Author: weitermachen
+// Time: 2026-03-24
+
+#pragma once
 
 #include <vector>
 #include <string>
@@ -176,3 +179,4 @@ extern "C" __declspec(dllexport) std::string GetInstanceName() {
 	return "Image filter"; // 告知主程序此 DLL 算法名
 }
 */
+

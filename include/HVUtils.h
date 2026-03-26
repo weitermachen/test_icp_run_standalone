@@ -1,4 +1,7 @@
-﻿#pragma once
+// Author: weitermachen
+// Time: 2026-03-24
+
+#pragma once
 
 #include "3d_pilot_public_def.h"
 #include <opencv2/opencv.hpp>
@@ -161,3 +164,4 @@ bool CropPointCloudByGeometry<open3d::geometry::PointCloud>(
     const HVGeometryInfo& geometry,
     const open3d::geometry::PointCloud& input,
     open3d::geometry::PointCloud& output);
+

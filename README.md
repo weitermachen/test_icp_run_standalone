@@ -16,6 +16,7 @@
 
 - TXT 点云自动缓存为 `.cache.pcd`，加速重复运行
 - 体素降采样（可用于 coarse 阶段）
+- 统计离群点滤波（source/target 去噪）
 - 源点云镜像（x/y/z 轴取反）
 
 ### 1.3 配准能力
@@ -39,9 +40,18 @@
 - source->target 的最终刚体变换 JSON
 - 下一次可复用的 `initial_transform_json`
 
+### 1.6 多位姿联合优化能力（新增）
+
+- 读取 `result` 目录下多个 `registration_result.json`
+- 读取 `data` 中对应 `left_*` 与 `right_*` / `rigth_*` 点云
+- 以多个 `registration_result.json` 作为初值进行全局联合优化（类似 bundle adjustment）
+- 可通过 `log.txt` 中 `Stage-2 Refine Evaluation` 的 RMSE 阈值过滤候选
+
 ## 2. 算法流程说明
 
 主流程位于 `src/main.cpp`，整体顺序如下：
+
+0. 根据 `run_mode` 选择功能（`registration` 或 `fusion`）
 
 1. 读取配置 JSON（默认 `./config/icp_run_config.json`）
 2. 加载 source/target 点云
@@ -50,6 +60,12 @@
 5. 执行 Stage-2 Refine（可选）
 6. 可选计算评估指标
 7. 保存最终点云与变换结果
+
+说明：
+
+- `run_mode=registration`：执行原有配准功能
+- `run_mode=fusion`：执行融合功能，不进入原始配准流程
+- 两种功能互斥，满足隔离要求
 
 ### 2.1 两阶段流水线
 
@@ -205,6 +221,8 @@ cmake --build build --config Release --target test_icp_run_standalone
 ./build/debug/Debug/test_icp_run_standalone.exe ./config/icp_run_config.json
 ```
 
+融合模式使用同一可执行文件，只需把配置中的 `run_mode` 改为 `fusion`。
+
 程序会优先读取命令行参数中的配置路径；未传参时使用默认路径 `./config/icp_run_config.json`。
 
 ### 7.2 退出码
@@ -220,6 +238,7 @@ cmake --build build --config Release --target test_icp_run_standalone
 
 ```json
 {
+  "run_mode": "registration",
   "input": {
     "source_cloud": "./data/source.txt",
     "target_cloud": "./data/target.txt"
@@ -227,6 +246,11 @@ cmake --build build --config Release --target test_icp_run_standalone
   "preprocess": {
     "enable_txt_cache": true,
     "filter_leaf_size": 0.6,
+    "noise_filter": {
+      "enabled": true,
+      "mean_k": 20,
+      "stddev_mul_thresh": 1.0
+    },
     "mirror_axes": "x"
   },
   "pipeline": {
@@ -259,11 +283,36 @@ cmake --build build --config Release --target test_icp_run_standalone
     "transformed_source_cloud": "transformed_source_by_registration.ply",
     "result_json": "registration_result.json",
     "initial_transform_json": "initial_transform_for_icp.json"
+  },
+  "fusion": {
+    "candidate_result_dir": "./result",
+    "data_dir": "./data",
+    "output_json": "fused_registration_result.json",
+    "max_sample_points_per_pair": 50000,
+    "trim_ratio": 0.1,
+    "max_refine_rmse": 0.5,
+    "optimization_max_iterations": 40,
+    "optimization_rotation_step_deg": 0.5,
+    "optimization_translation_step": 0.5,
+    "optimization_min_rotation_step_deg": 0.005,
+    "optimization_min_translation_step": 0.01
   }
 }
 ```
 
-### 8.2 input
+### 8.2 run_mode
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| run_mode | string | `registration` 或 `fusion` |
+
+说明：
+
+- `registration`：原始标定流程
+- `fusion`：多位姿标定联合优化流程
+- 两种模式互斥，不能同时启用
+
+### 8.3 input（仅 registration 模式）
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -275,12 +324,13 @@ cmake --build build --config Release --target test_icp_run_standalone
 - 相对路径按配置文件所在目录解析
 - source/target 不能为空
 
-### 8.3 preprocess
+### 8.4 preprocess（仅 registration 模式）
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | enable_txt_cache | bool | 是否启用 TXT->PCD 缓存 |
 | filter_leaf_size | number | coarse 阶段体素降采样尺寸 |
+| noise_filter | object | 统计离群点滤波配置 |
 | mirror_axes | string/array/object | 对 source 做轴向镜像 |
 
 `mirror_axes` 支持三种写法：
@@ -289,7 +339,13 @@ cmake --build build --config Release --target test_icp_run_standalone
 - 数组：`["x", "z"]`
 - 对象：`{"x": true, "y": false, "z": true}`
 
-### 8.4 pipeline
+`noise_filter` 字段：
+
+- `enabled`：是否开启去噪
+- `mean_k`：邻域点数
+- `stddev_mul_thresh`：标准差倍数阈值
+
+### 8.5 pipeline（仅 registration 模式）
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -298,7 +354,7 @@ cmake --build build --config Release --target test_icp_run_standalone
 
 约束：两者不能同时为 false。
 
-### 8.5 coarse_registration / refine_registration
+### 8.6 coarse_registration / refine_registration（仅 registration 模式）
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -322,7 +378,7 @@ cmake --build build --config Release --target test_icp_run_standalone
 }
 ```
 
-### 8.6 evaluation
+### 8.7 evaluation（仅 registration 模式）
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -336,7 +392,7 @@ cmake --build build --config Release --target test_icp_run_standalone
 - `refine` / `stage2` / `stage-2`
 - `both` / `all`
 
-### 8.7 output
+### 8.8 output（仅 registration 模式）
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -344,6 +400,29 @@ cmake --build build --config Release --target test_icp_run_standalone
 | transformed_source_cloud | string | 变换后 source 点云文件名（PLY） |
 | result_json | string | 最终变换 JSON 文件名 |
 | initial_transform_json | string | 复用初值 JSON 文件名 |
+
+### 8.9 fusion（仅 fusion 模式）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| candidate_result_dir | string | 候选标定目录（递归查找 `registration_result.json`） |
+| data_dir | string | 原始点云目录（匹配 `left_*` 与 `right_*`/`rigth_*`） |
+| output_json | string | 融合输出 JSON 文件名 |
+| max_sample_points_per_pair | int | 每个位姿评估最大采样点数 |
+| trim_ratio | number | 截尾比例，范围 `[0,0.5)` |
+| max_refine_rmse | number | Refine Evaluation RMSE 阈值，`<=0` 表示关闭 |
+| optimization_max_iterations | int | 联合优化最大迭代次数 |
+| optimization_rotation_step_deg | number | 联合优化旋转初始步长（度） |
+| optimization_translation_step | number | 联合优化平移初始步长 |
+| optimization_min_rotation_step_deg | number | 联合优化最小旋转步长（度） |
+| optimization_min_translation_step | number | 联合优化最小平移步长 |
+
+融合策略：
+
+- 先从每个候选目录的 `log.txt` 读取 `Stage-2 Refine Evaluation` 的 `rmse`
+- 若 `rmse > max_refine_rmse`，则该候选被跳过
+- 对剩余候选，以其刚体变换作为初值，在全部位姿数据上优化统一全局目标函数
+- 从多初值优化结果中选择全局 RMSE 最小的最终结果
 
 ## 9. 输出结果说明
 
@@ -368,6 +447,27 @@ cmake --build build --config Release --target test_icp_run_standalone
 ### 9.3 initial_transform_json
 
 用于下次配准直接作为 `initial_transform_json` 输入，减少收敛时间、提升稳定性。
+
+### 9.4 fused_registration_result.json（fusion 模式）
+
+示例结构：
+
+```json
+{
+  "transform_source_to_target": {
+    "R": [[r11, r12, r13], [r21, r22, r23], [r31, r32, r33]],
+    "t": [tx, ty, tz]
+  },
+  "fusion_meta": {
+    "method": "global_bundle_adjustment_like_multi_start",
+    "candidate_count": 6,
+    "best_initial_candidate": "result/3/registration_result.json",
+    "global_rmse": 0.123456,
+    "max_refine_rmse": 0.5,
+    "candidate_scores": []
+  }
+}
+```
 
 ## 10. 常见问题
 

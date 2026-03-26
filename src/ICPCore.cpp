@@ -1,4 +1,7 @@
-﻿#include "ICPCore.h"
+// Author: weitermachen
+// Time: 2026-03-24
+
+#include "ICPCore.h"
 
 #include <json.hpp>
 #include <pcl/common/transforms.h>
