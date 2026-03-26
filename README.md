@@ -40,12 +40,13 @@
 - source->target 的最终刚体变换 JSON
 - 下一次可复用的 `initial_transform_json`
 
-### 1.6 多位姿联合优化能力（新增）
+### 1.6 多位姿联合优化能力（Fusion 模式）
 
-- 读取 `result` 目录下多个 `registration_result.json`
+- 读取 `result` 目录下多个 `registration_result.json` 作为候选
 - 读取 `data` 中对应 `left_*` 与 `right_*` / `rigth_*` 点云
-- 以多个 `registration_result.json` 作为初值进行全局联合优化（类似 bundle adjustment）
-- 可通过 `log.txt` 中 `Stage-2 Refine Evaluation` 的 RMSE 阈值过滤候选
+- 对所有候选刚体变换做 SVD 旋转均值与平移均值，得到单一起始点
+- 以全部位姿对的截尾 RMSE 均值为目标，执行基于有限差分的 Gauss-Newton 优化
+- 可通过 `log.txt` 中 `Stage-2 Refine Evaluation` 的 RMSE 阈值过滤低质量候选
 
 ## 2. 算法流程说明
 
@@ -408,21 +409,22 @@ cmake --build build --config Release --target test_icp_run_standalone
 | candidate_result_dir | string | 候选标定目录（递归查找 `registration_result.json`） |
 | data_dir | string | 原始点云目录（匹配 `left_*` 与 `right_*`/`rigth_*`） |
 | output_json | string | 融合输出 JSON 文件名 |
-| max_sample_points_per_pair | int | 每个位姿评估最大采样点数 |
-| trim_ratio | number | 截尾比例，范围 `[0,0.5)` |
-| max_refine_rmse | number | Refine Evaluation RMSE 阈值，`<=0` 表示关闭 |
-| optimization_max_iterations | int | 联合优化最大迭代次数 |
-| optimization_rotation_step_deg | number | 联合优化旋转初始步长（度） |
-| optimization_translation_step | number | 联合优化平移初始步长 |
-| optimization_min_rotation_step_deg | number | 联合优化最小旋转步长（度） |
-| optimization_min_translation_step | number | 联合优化最小平移步长 |
+| max_sample_points_per_pair | int | 每个位姿结果评估时的最大采样点数（用于最终 RMSE 计算） |
+| optimization_sample_points_per_pair | int | 优化迭代中每个位姿对的最大采样点数（小于评估采样以加速） |
+| trim_ratio | number | 截尾比例，丢弃最远的指定比例点对，范围 `[0,0.5)` |
+| max_refine_rmse | number | Refine Evaluation RMSE 过滤阈值，`<=0` 表示关闭 |
+| optimization_max_iterations | int | 坐标下降优化最大迭代轮次 |
+| optimization_rotation_step_deg | number | 旋转方向初始步长（度） |
+| optimization_translation_step | number | 平移方向初始步长（单位与点云一致） |
+| optimization_min_rotation_step_deg | number | 旋转收敛最小步长（度） |
+| optimization_min_translation_step | number | 平移收敛最小步长 |
 
 融合策略：
 
-- 先从每个候选目录的 `log.txt` 读取 `Stage-2 Refine Evaluation` 的 `rmse`
-- 若 `rmse > max_refine_rmse`，则该候选被跳过
-- 对剩余候选，以其刚体变换作为初值，在全部位姿数据上优化统一全局目标函数
-- 从多初值优化结果中选择全局 RMSE 最小的最终结果
+1. 若设置 `max_refine_rmse`，则先从各候选目录的 `log.txt` 读取 `Stage-2 Refine Evaluation` 的 RMSE，超过阈值者跳过
+2. 对通过过滤的所有候选刚体变换，累加旋转矩阵后用 SVD 投影回 SO(3)，并对平移向量求均值，得到单一初始变换
+3. 以所有位姿对的截尾 RMSE 均值为目标函数，从该初始值出发执行有限差分 Gauss-Newton 优化
+4. 每轮用有限差分估计 6 自由度梯度，构建带阻尼项的近似 Hessian，并通过回溯步长接受下降方向；若步长已很小且无改进则终止
 
 ## 9. 输出结果说明
 
@@ -459,15 +461,33 @@ cmake --build build --config Release --target test_icp_run_standalone
     "t": [tx, ty, tz]
   },
   "fusion_meta": {
-    "method": "global_bundle_adjustment_like_multi_start",
+    "method": "svd_rotation_mean_finite_difference_gauss_newton",
     "candidate_count": 6,
-    "best_initial_candidate": "result/3/registration_result.json",
     "global_rmse": 0.123456,
+    "trim_ratio": 0.1,
+    "max_sample_points_per_pair": 50000,
+    "optimization_sample_points_per_pair": 8000,
     "max_refine_rmse": 0.5,
-    "candidate_scores": []
+    "optimization_max_iterations": 40,
+    "optimization_rotation_step_deg": 0.5,
+    "optimization_translation_step": 0.5,
+    "candidate_scores": [
+      {
+        "candidate": "result/3/registration_result.json",
+        "index": "3",
+        "initial_global_rmse": 0.145,
+        "refine_rmse": 0.32
+      }
+    ]
   }
 }
 ```
+
+字段说明：
+
+- `method`：当前固定为 `svd_rotation_mean_finite_difference_gauss_newton`
+- `global_rmse`：最终优化后的全局截尾 RMSE 均值
+- `candidate_scores`：各候选变换在全局点云对上的初始 RMSE 评分列表
 
 ## 10. 常见问题
 

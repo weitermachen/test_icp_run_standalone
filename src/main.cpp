@@ -26,6 +26,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include <Eigen/Dense>
+
 #include <pcl/filters/statistical_outlier_removal.h>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/io/pcd_io.h>
@@ -37,7 +39,11 @@
 #include "HVCloudPairICP.h"
 #include "HVUtils.h"
 
-// Logger: write to file and console simultaneously.
+/**
+ * @brief 双路输出流缓冲区
+ *
+ * @description 将日志内容同时写入文件与控制台，供 LogManager 接管标准输出时复用。
+ */
 class DualStreambuf : public std::streambuf {
 public:
     DualStreambuf(std::ostream& file, std::streambuf* console_buf)
@@ -65,7 +71,12 @@ private:
     std::streambuf* console_buf_;
 };
 
-// RAII logger manager.
+/**
+ * @brief 日志生命周期管理器
+ *
+ * @description 负责创建 result/log.txt，并在对象生命周期内把 std::cout / std::cerr
+ * 重定向到文件与控制台双写缓冲区，析构时自动恢复。
+ */
 class LogManager {
 public:
     LogManager()
@@ -127,16 +138,19 @@ const std::string kDefaultTransformedSourceResultName = "transformed_source_by_r
 const std::string kDefaultResultJsonName = "registration_result.json";
 const std::string kDefaultInitialTransformJsonName = "initial_transform_for_icp.json";
 
+/** @brief 体素滤波参数。 */
 struct FilterParams {
     float leaf_size = 0.6f;
 };
 
+/** @brief 统计离群点滤波配置。 */
 struct NoiseFilterConfig {
     bool enabled = false;
     int mean_k = 20;
     double stddev_mul_thresh = 1.0;
 };
 
+/** @brief 单阶段配准参数集合。 */
 struct RegistrationParams {
     int method = 1;                         // 0: ICP, 1: GICP, 2: LP-ICP
     double voxel_size = 0.0;                // <=0 means disabled in HVCloudPairICP
@@ -146,6 +160,7 @@ struct RegistrationParams {
     std::string initial_transform_json = "";
 };
 
+/** @brief 源点云镜像轴配置。 */
 struct MirrorAxes {
     bool x = true;
     bool y = false;
@@ -156,11 +171,13 @@ struct MirrorAxes {
     }
 };
 
+/** @brief coarse/refine 两阶段执行开关。 */
 struct PipelineConfig {
     bool run_coarse = true;
     bool run_refine = true;
 };
 
+/** @brief 配准评估配置。 */
 struct EvaluationConfig {
     bool enabled = false;
     bool evaluate_coarse = true;
@@ -168,6 +185,7 @@ struct EvaluationConfig {
     std::size_t max_sample_points = 50000;
 };
 
+/** @brief 结果输出配置。 */
 struct OutputConfig {
     std::string result_dir = kDefaultResultDir;
     std::string transformed_source_name = kDefaultTransformedSourceResultName;
@@ -175,6 +193,7 @@ struct OutputConfig {
     std::string initial_transform_json_name = kDefaultInitialTransformJsonName;
 };
 
+/** @brief 多位姿融合优化配置。 */
 struct FusionConfig {
     std::string candidate_result_dir = "result";
     std::string data_dir = "data";
@@ -190,6 +209,7 @@ struct FusionConfig {
     double optimization_min_translation_step = 0.01;
 };
 
+/** @brief 最近邻评估统计结果。 */
 struct DistanceMetrics {
     std::size_t sampled_points = 0;
     std::size_t sample_stride = 1;
@@ -206,6 +226,15 @@ void MirrorCloudByNegatingX(PCLCloudPtr& cloud,
                             const MirrorAxes& axes,
                             bool save_mirrored_cloud = true);
 
+/**
+ * @brief 构建默认 refine 配准参数
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 RegistrationParams BuildDefaultRefineParams() {
     RegistrationParams params;
     params.method = 2;
@@ -217,6 +246,7 @@ RegistrationParams BuildDefaultRefineParams() {
     return params;
 }
 
+/** @brief 程序完整运行配置。 */
 struct AppConfig {
     std::string run_mode = "registration";  // registration | fusion
     std::string source_cloud_path = kDefaultLeftCloudPath;
@@ -233,12 +263,30 @@ struct AppConfig {
     FusionConfig fusion;
 };
 
+/**
+ * @brief 将字符串转换为小写
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 std::string ToLower(std::string s) {
     std::transform(s.begin(), s.end(), s.begin(),
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return s;
 }
 
+/**
+ * @brief 去除字符串首尾空白字符
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 std::string TrimWhitespace(const std::string& text) {
     size_t begin = 0;
     size_t end = text.size();
@@ -253,6 +301,18 @@ std::string TrimWhitespace(const std::string& text) {
     return text.substr(begin, end - begin);
 }
 
+/**
+ * @brief 从 JSON 对象中读取可选字段
+ * @param object_json 输入 JSON 对象
+ * @param key 目标字段名
+ * @param output 字段存在时写入的输出变量
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 template <typename T>
 void ReadOptionalValue(const nlohmann::json& object_json, const char* key, T& output) {
     auto it = object_json.find(key);
@@ -261,14 +321,41 @@ void ReadOptionalValue(const nlohmann::json& object_json, const char* key, T& ou
     }
 }
 
+/**
+ * @brief 判断字符是否为 TXT 点云分隔符
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 bool IsTxtSeparator(char c) {
     return c == ' ' || c == '\t' || c == ',' || c == ';';
 }
 
+/**
+ * @brief 判断文件扩展名是否为支持的点云格式
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 bool IsSupportedCloudExtension(const std::string& ext) {
     return ext == ".txt" || ext == ".pcd" || ext == ".ply";
 }
 
+/**
+ * @brief 忽略大小写判断字符串前缀
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 bool StartsWithCaseInsensitive(const std::string& text, const std::string& prefix) {
     if (text.size() < prefix.size()) {
         return false;
@@ -286,6 +373,15 @@ bool StartsWithCaseInsensitive(const std::string& text, const std::string& prefi
     return true;
 }
 
+/**
+ * @brief 提取字符串中的数字字符
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 std::string ExtractDigits(const std::string& text) {
     std::string digits;
     for (char c : text) {
@@ -296,6 +392,15 @@ std::string ExtractDigits(const std::string& text) {
     return digits;
 }
 
+/**
+ * @brief 规范化数字标识字符串
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 std::string NormalizeNumericToken(const std::string& token) {
     if (token.empty()) {
         return token;
@@ -308,6 +413,15 @@ std::string NormalizeNumericToken(const std::string& token) {
     return token.substr(first_non_zero);
 }
 
+/**
+ * @brief 提取指定前缀后的数字标识
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 bool ExtractNumericTokenAfterPrefix(const std::string& file_name_lower,
                                     const std::string& prefix_lower,
                                     std::string& token_out) {
@@ -335,6 +449,15 @@ bool ExtractNumericTokenAfterPrefix(const std::string& file_name_lower,
     return true;
 }
 
+/**
+ * @brief 判断点坐标是否全部为有限值
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 bool IsFinitePoint(const pcl::PointXYZ& point) {
     return std::isfinite(point.x) && std::isfinite(point.y) && std::isfinite(point.z);
 }
@@ -353,6 +476,15 @@ const char* SkipTxtSeparators(const char* p) {
     return p;
 }
 
+/**
+ * @brief 从文本指针位置解析浮点数
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 bool ParseFloatToken(const char*& p, float& value) {
     p = SkipTxtSeparators(p);
     if (*p == '\0') {
@@ -371,12 +503,30 @@ bool ParseFloatToken(const char*& p, float& value) {
     return true;
 }
 
+/**
+ * @brief 构建 TXT 点云缓存文件路径
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 std::filesystem::path BuildTxtCachePath(const std::filesystem::path& txt_path) {
     std::filesystem::path cache_path = txt_path;
     cache_path += ".cache.pcd";
     return cache_path;
 }
 
+/**
+ * @brief 解析一行 TXT 点云坐标
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 bool TryParseTxtPointLine(const std::string& line, pcl::PointXYZ& point) {
     const char* p = SkipLeadingTextSpaces(line.c_str());
     if (*p == '\0') {
@@ -400,6 +550,15 @@ bool TryParseTxtPointLine(const std::string& line, pcl::PointXYZ& point) {
     return true;
 }
 
+/**
+ * @brief 基于基础目录解析路径
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 std::string ResolvePathFromBase(const std::string& raw_path,
                                 const std::filesystem::path& base_dir) {
     if (raw_path.empty()) {
@@ -432,6 +591,15 @@ std::string ResolvePathFromBase(const std::string& raw_path,
     return (base_dir / path_value).lexically_normal().string();
 }
 
+/**
+ * @brief 从字符串解析镜像轴配置
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 bool ParseMirrorAxesFromString(const std::string& axes_text,
                                MirrorAxes& axes,
                                std::string& error) {
@@ -461,6 +629,15 @@ bool ParseMirrorAxesFromString(const std::string& axes_text,
     return true;
 }
 
+/**
+ * @brief 解析镜像轴 JSON 配置
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 bool ParseMirrorAxesConfig(const nlohmann::json& mirror_axes_json,
                            MirrorAxes& axes,
                            std::string& error) {
@@ -512,6 +689,15 @@ bool ParseMirrorAxesConfig(const nlohmann::json& mirror_axes_json,
     return false;
 }
 
+/**
+ * @brief 应用评估阶段标记
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 bool ApplyStageToken(const std::string& token,
                      bool& evaluate_coarse,
                      bool& evaluate_refine,
@@ -539,6 +725,15 @@ bool ApplyStageToken(const std::string& token,
     return false;
 }
 
+/**
+ * @brief 解析评估阶段配置
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 bool ParseEvaluationStages(const nlohmann::json& stages_json,
                            EvaluationConfig& evaluation,
                            std::string& error) {
@@ -586,6 +781,15 @@ bool ParseEvaluationStages(const nlohmann::json& stages_json,
     return true;
 }
 
+/**
+ * @brief 读取初始位姿 JSON 参数
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 bool ReadInitialTransformJsonParam(const nlohmann::json& params_json,
                                    const char* key,
                                    std::string& value,
@@ -609,6 +813,15 @@ bool ReadInitialTransformJsonParam(const nlohmann::json& params_json,
     return false;
 }
 
+/**
+ * @brief 读取配准参数配置
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 bool ReadRegistrationParams(const nlohmann::json& params_json,
                             RegistrationParams& params,
                             std::string& error) {
@@ -623,6 +836,15 @@ bool ReadRegistrationParams(const nlohmann::json& params_json,
                                          error);
 }
 
+/**
+ * @brief 判断目录是否为工程根目录
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 bool IsProjectRootDirectory(const std::filesystem::path& dir) {
     std::error_code ec;
     const bool has_cmake = std::filesystem::exists(dir / "CMakeLists.txt", ec);
@@ -637,6 +859,15 @@ bool IsProjectRootDirectory(const std::filesystem::path& dir) {
     return !ec && has_default_config;
 }
 
+/**
+ * @brief 解析工程根目录路径
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 std::filesystem::path ResolveProjectRootPath(int argc, char** argv) {
     std::vector<std::filesystem::path> start_points;
     std::error_code ec;
@@ -673,6 +904,15 @@ std::filesystem::path ResolveProjectRootPath(int argc, char** argv) {
     return std::filesystem::path();
 }
 
+/**
+ * @brief 将工作目录切换到工程根目录
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 void EnsureWorkingDirectoryAtProjectRoot(int argc, char** argv) {
     const std::filesystem::path root_path = ResolveProjectRootPath(argc, argv);
     if (root_path.empty()) {
@@ -683,6 +923,15 @@ void EnsureWorkingDirectoryAtProjectRoot(int argc, char** argv) {
     std::filesystem::current_path(root_path, ec);
 }
 
+/**
+ * @brief 解析默认配置文件路径
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 std::filesystem::path ResolveDefaultConfigPath(int argc, char** argv) {
     const std::filesystem::path default_relative_path =
         std::filesystem::path(kDefaultConfigFileName).lexically_normal();
@@ -726,6 +975,15 @@ std::filesystem::path ResolveDefaultConfigPath(int argc, char** argv) {
     return default_relative_path;
 }
 
+/**
+ * @brief 解析运行时配置文件路径
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 std::filesystem::path ResolveConfigPath(int argc, char** argv) {
     if (argc > 1 && argv[1] != nullptr) {
         const std::string arg_path = argv[1];
@@ -752,6 +1010,15 @@ std::filesystem::path ResolveConfigPath(int argc, char** argv) {
     return std::filesystem::path(input_path);
 }
 
+/**
+ * @brief 从 JSON 文件加载应用配置
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 bool LoadConfigFromJsonFile(const std::filesystem::path& config_path,
                             AppConfig& config,
                             std::string& error) {
@@ -770,6 +1037,7 @@ bool LoadConfigFromJsonFile(const std::filesystem::path& config_path,
     const std::filesystem::path base_dir = config_path.parent_path();
 
     try {
+        // 基础运行模式与输入输出路径优先从配置中读取，再结合配置文件目录解析相对路径。
         ReadOptionalValue(root, "run_mode", config.run_mode);
 
         if (root.contains("input") && root["input"].is_object()) {
@@ -784,6 +1052,7 @@ bool LoadConfigFromJsonFile(const std::filesystem::path& config_path,
         }
 
         if (root.contains("preprocess") && root["preprocess"].is_object()) {
+            // 预处理配置集中管理 TXT 缓存、降采样、去噪和镜像等前置操作。
             const auto& preprocess_json = root["preprocess"];
             ReadOptionalValue(preprocess_json, "enable_txt_cache", config.enable_txt_cache);
             ReadOptionalValue(preprocess_json, "filter_leaf_size", config.filter.leaf_size);
@@ -850,6 +1119,7 @@ bool LoadConfigFromJsonFile(const std::filesystem::path& config_path,
         }
 
         if (root.contains("fusion") && root["fusion"].is_object()) {
+            // fusion 模式需要额外解析候选目录、原始数据目录和优化超参数。
             const auto& fusion_json = root["fusion"];
 
             std::string candidate_result_dir = config.fusion.candidate_result_dir;
@@ -979,6 +1249,15 @@ bool LoadConfigFromJsonFile(const std::filesystem::path& config_path,
     return true;
 }
 
+/**
+ * @brief 将镜像轴配置转换为字符串
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 std::string MirrorAxesToString(const MirrorAxes& axes) {
     std::string text;
     if (axes.x) {
@@ -996,6 +1275,15 @@ std::string MirrorAxesToString(const MirrorAxes& axes) {
     return text;
 }
 
+/**
+ * @brief 加载 TXT 点云并按需使用缓存
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 bool LoadTxtPointCloud(const std::string& path,
                        PCLCloudPtr& cloud,
                        std::string& error,
@@ -1007,6 +1295,7 @@ bool LoadTxtPointCloud(const std::string& path,
 
     std::error_code ec;
     if (enable_txt_cache && std::filesystem::exists(cache_path, ec) && !ec) {
+        // 只有当缓存文件不比原始 TXT 更旧时，才直接复用缓存结果。
         ec.clear();
         const auto txt_time = std::filesystem::last_write_time(txt_path, ec);
         if (!ec) {
@@ -1034,6 +1323,7 @@ bool LoadTxtPointCloud(const std::string& path,
     cloud.reset(new PCLCloud);
     const std::uintmax_t file_size_bytes = std::filesystem::file_size(txt_path, ec);
     if (!ec && file_size_bytes > 0) {
+        // 按经验值预估点数，减少大文件读取过程中的动态扩容次数。
         const std::size_t estimated_points = static_cast<std::size_t>(file_size_bytes / 28);
         if (estimated_points > 0) {
             cloud->points.reserve(estimated_points);
@@ -1065,6 +1355,15 @@ bool LoadTxtPointCloud(const std::string& path,
     return true;
 }
 
+/**
+ * @brief 加载点云文件
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 bool LoadPointCloud(const std::string& path,
                     PCLCloudPtr& cloud,
                     std::string& error,
@@ -1126,6 +1425,15 @@ bool LoadPointCloud(const std::string& path,
     return true;
 }
 
+/**
+ * @brief 对点云执行体素降采样
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 PCLCloudPtr VoxelFilter(const PCLCloudPtr& input, float leaf_size) {
     if (!input || input->empty()) {
         return input;
@@ -1143,6 +1451,15 @@ PCLCloudPtr VoxelFilter(const PCLCloudPtr& input, float leaf_size) {
     return filtered;
 }
 
+/**
+ * @brief 对点云执行统计离群点滤波
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 PCLCloudPtr StatisticalOutlierFilter(const PCLCloudPtr& input,
                                     const NoiseFilterConfig& noise_filter) {
     if (!input || input->empty() || !noise_filter.enabled) {
@@ -1162,6 +1479,7 @@ PCLCloudPtr StatisticalOutlierFilter(const PCLCloudPtr& input,
     return filtered;
 }
 
+/** @brief 融合候选结果及其元数据。 */
 struct FusionCandidate {
     std::filesystem::path json_path;
     std::filesystem::path log_path;
@@ -1171,6 +1489,15 @@ struct FusionCandidate {
     double translation[3] = {0.0, 0.0, 0.0};
 };
 
+/**
+ * @brief 从日志中提取 refine 阶段 RMSE
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 bool ParseRefineRmseFromLog(const std::filesystem::path& log_path,
                             double& refine_rmse) {
     refine_rmse = std::numeric_limits<double>::quiet_NaN();
@@ -1201,6 +1528,15 @@ bool ParseRefineRmseFromLog(const std::filesystem::path& log_path,
     return found && std::isfinite(refine_rmse);
 }
 
+/**
+ * @brief 从结果 JSON 加载 source 到 target 的刚体变换
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 bool LoadTransformSourceToTargetJsonFile(const std::filesystem::path& json_path,
                                          FusionCandidate& candidate,
                                          std::string& error) {
@@ -1261,6 +1597,15 @@ bool LoadTransformSourceToTargetJsonFile(const std::filesystem::path& json_path,
     return true;
 }
 
+/**
+ * @brief 从日志中提取 source 与 target 路径
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 bool ParseSourceTargetFromLog(const std::filesystem::path& log_path,
                               std::string& source_cloud_path,
                               std::string& target_cloud_path) {
@@ -1283,6 +1628,15 @@ bool ParseSourceTargetFromLog(const std::filesystem::path& log_path,
     return !source_cloud_path.empty() && !target_cloud_path.empty();
 }
 
+/**
+ * @brief 按编号标识匹配点云文件
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 bool MatchCloudFileByToken(const std::filesystem::path& data_dir,
                            const std::vector<std::string>& prefixes,
                            const std::string& token,
@@ -1325,6 +1679,15 @@ bool MatchCloudFileByToken(const std::filesystem::path& data_dir,
     return false;
 }
 
+/**
+ * @brief 为融合候选解析对应点云对
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 bool ResolveCandidateCloudPair(const FusionCandidate& candidate,
                                const FusionConfig& fusion,
                                std::filesystem::path& source_path,
@@ -1364,6 +1727,15 @@ bool ResolveCandidateCloudPair(const FusionCandidate& candidate,
     return true;
 }
 
+/**
+ * @brief 计算单对点云在给定位姿下的 RMSE
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 bool ComputeTransformPairRmse(const PCLCloudPtr& source_cloud,
                               const PCLCloudPtr& target_cloud,
                               const double rotation[3][3],
@@ -1435,6 +1807,7 @@ bool ComputeTransformPairRmse(const PCLCloudPtr& source_cloud,
     return true;
 }
 
+/** @brief 融合优化中使用的预处理点云对。 */
 struct FusionPairData {
     std::filesystem::path source_path;
     std::filesystem::path target_path;
@@ -1444,6 +1817,15 @@ struct FusionPairData {
     MirrorAxes mirror_axes;
 };
 
+/**
+ * @brief 计算 3x3 矩阵乘法
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 void MultiplyMat3(const double a[3][3],
                   const double b[3][3],
                   double out[3][3]) {
@@ -1456,6 +1838,115 @@ void MultiplyMat3(const double a[3][3],
     }
 }
 
+/**
+ * @brief 复制 3x3 矩阵
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
+void CopyMat3(const double src[3][3],
+              double dst[3][3]) {
+    for (int r = 0; r < 3; ++r) {
+        for (int c = 0; c < 3; ++c) {
+            dst[r][c] = src[r][c];
+        }
+    }
+}
+
+/**
+ * @brief 计算 3x3 矩阵行列式
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
+double DeterminantMat3(const double matrix[3][3]) {
+    return matrix[0][0] * (matrix[1][1] * matrix[2][2] - matrix[1][2] * matrix[2][1]) -
+           matrix[0][1] * (matrix[1][0] * matrix[2][2] - matrix[1][2] * matrix[2][0]) +
+           matrix[0][2] * (matrix[1][0] * matrix[2][1] - matrix[1][1] * matrix[2][0]);
+}
+
+/**
+ * @brief 求解 6x6 矩阵逆
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
+bool InvertMat6(const double input[6][6],
+                double inverse[6][6]) {
+    double augmented[6][12] = {{0.0}};
+    for (int r = 0; r < 6; ++r) {
+        for (int c = 0; c < 6; ++c) {
+            augmented[r][c] = input[r][c];
+        }
+        augmented[r][r + 6] = 1.0;
+    }
+
+    for (int col = 0; col < 6; ++col) {
+        int pivot_row = col;
+        double pivot_abs = std::fabs(augmented[pivot_row][col]);
+        for (int r = col + 1; r < 6; ++r) {
+            const double candidate_abs = std::fabs(augmented[r][col]);
+            if (candidate_abs > pivot_abs) {
+                pivot_abs = candidate_abs;
+                pivot_row = r;
+            }
+        }
+
+        if (pivot_abs < 1e-15) {
+            return false;
+        }
+
+        if (pivot_row != col) {
+            for (int c = 0; c < 12; ++c) {
+                std::swap(augmented[col][c], augmented[pivot_row][c]);
+            }
+        }
+
+        const double pivot = augmented[col][col];
+        for (int c = 0; c < 12; ++c) {
+            augmented[col][c] /= pivot;
+        }
+
+        for (int r = 0; r < 6; ++r) {
+            if (r == col) {
+                continue;
+            }
+            const double factor = augmented[r][col];
+            if (std::fabs(factor) < 1e-18) {
+                continue;
+            }
+            for (int c = 0; c < 12; ++c) {
+                augmented[r][c] -= factor * augmented[col][c];
+            }
+        }
+    }
+
+    for (int r = 0; r < 6; ++r) {
+        for (int c = 0; c < 6; ++c) {
+            inverse[r][c] = augmented[r][c + 6];
+        }
+    }
+    return true;
+}
+
+/**
+ * @brief 将轴角向量转换为旋转矩阵
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 void RodriguesToRotation(const double w[3],
                          double rotation[3][3]) {
     const double theta = std::sqrt(w[0] * w[0] + w[1] * w[1] + w[2] * w[2]);
@@ -1484,6 +1975,15 @@ void RodriguesToRotation(const double w[3],
     rotation[2][2] = c + kz * kz * v;
 }
 
+/**
+ * @brief 将旋转增量作用到基础旋转矩阵
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 void ComposeRotationDelta(const double base_rotation[3][3],
                           const double delta_axis_angle[3],
                           double output_rotation[3][3]) {
@@ -1492,6 +1992,15 @@ void ComposeRotationDelta(const double base_rotation[3][3],
     MultiplyMat3(delta_rotation, base_rotation, output_rotation);
 }
 
+/**
+ * @brief 基于预处理点云对计算 RMSE
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 bool ComputeTransformPairRmsePrepared(const FusionPairData& pair,
                                       const double rotation[3][3],
                                       const double translation[3],
@@ -1561,6 +2070,15 @@ bool ComputeTransformPairRmsePrepared(const FusionPairData& pair,
     return true;
 }
 
+/**
+ * @brief 计算融合位姿在全部点云对上的全局 RMSE
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 bool ComputeGlobalRmseForTransform(const std::vector<FusionPairData>& pairs,
                                    const FusionConfig& fusion,
                                    const double rotation[3][3],
@@ -1601,78 +2119,158 @@ bool ComputeGlobalRmseForTransform(const std::vector<FusionPairData>& pairs,
     return true;
 }
 
-// Compute the element-wise average rotation and translation from all candidates,
-// then orthonormalize the average rotation via Gram-Schmidt.
-void AverageCandidateTransforms(const std::vector<FusionCandidate>& candidates,
-                                double avg_rotation[3][3],
-                                double avg_translation[3]) {
-    double sum_R[3][3] = {{0.0}};
-    double sum_t[3] = {0.0, 0.0, 0.0};
+/**
+ * @brief 计算候选变换集合的平均初始位姿
+ * @param candidates 候选刚体变换集合，每项包含旋转矩阵与平移向量
+ * @param avg_rotation 输出平均旋转矩阵，结果会被投影到合法 SO(3)
+ * @param avg_translation 输出平均平移向量
+ * @return 无返回值
+ *
+ * @description 工作流执行步骤：
+ *   1. 遍历全部候选，累加每个候选的旋转矩阵与平移向量
+ *   2. 对旋转矩阵累加结果执行 SVD 分解
+ *   3. 使用 U * V^T 将均值旋转投影回 SO(3)
+ *   4. 若行列式小于 0，则翻转最后一列以保证右手系旋转
+ *   5. 对平移向量取算术平均，作为融合优化的初始平移
+ */
+void AverageCandidateTransformsSvd(const std::vector<FusionCandidate>& candidates,
+                                   double avg_rotation[3][3],
+                                   double avg_translation[3]) {
+    Eigen::Matrix3d sum_rotation = Eigen::Matrix3d::Zero();
+    Eigen::Vector3d sum_translation = Eigen::Vector3d::Zero();
 
-    for (const auto& c : candidates) {
+    for (const auto& candidate : candidates) {
+        Eigen::Matrix3d current_rotation;
         for (int r = 0; r < 3; ++r) {
-            for (int col = 0; col < 3; ++col) {
-                sum_R[r][col] += c.rotation[r][col];
+            for (int c = 0; c < 3; ++c) {
+                current_rotation(r, c) = candidate.rotation[r][c];
             }
-            sum_t[r] += c.translation[r];
+            sum_translation(r) += candidate.translation[r];
         }
+        sum_rotation += current_rotation;
     }
 
-    const double n = static_cast<double>(candidates.size());
-    double raw_R[3][3];
-    for (int r = 0; r < 3; ++r) {
-        for (int col = 0; col < 3; ++col) {
-            raw_R[r][col] = sum_R[r][col] / n;
-        }
-        avg_translation[r] = sum_t[r] / n;
+    Eigen::JacobiSVD<Eigen::Matrix3d> svd(sum_rotation, Eigen::ComputeFullU | Eigen::ComputeFullV);
+    Eigen::Matrix3d projected_rotation = svd.matrixU() * svd.matrixV().transpose();
+    if (projected_rotation.determinant() < 0.0) {
+        Eigen::Matrix3d corrected_v = svd.matrixV();
+        corrected_v.col(2) *= -1.0;
+        projected_rotation = svd.matrixU() * corrected_v.transpose();
     }
 
-    // Gram-Schmidt orthonormalization on columns of raw_R.
-    // Work column-major: c0, c1, c2.
-    double c0[3] = {raw_R[0][0], raw_R[1][0], raw_R[2][0]};
-    double c1[3] = {raw_R[0][1], raw_R[1][1], raw_R[2][1]};
-    double c2[3] = {raw_R[0][2], raw_R[1][2], raw_R[2][2]};
-
-    // Normalize c0
-    double norm0 = std::sqrt(c0[0]*c0[0] + c0[1]*c0[1] + c0[2]*c0[2]);
-    if (norm0 < 1e-12) { norm0 = 1.0; }
-    for (int i = 0; i < 3; ++i) { c0[i] /= norm0; }
-
-    // c1 -= proj of c1 onto c0
-    double dot01 = c1[0]*c0[0] + c1[1]*c0[1] + c1[2]*c0[2];
-    for (int i = 0; i < 3; ++i) { c1[i] -= dot01 * c0[i]; }
-    double norm1 = std::sqrt(c1[0]*c1[0] + c1[1]*c1[1] + c1[2]*c1[2]);
-    if (norm1 < 1e-12) { norm1 = 1.0; }
-    for (int i = 0; i < 3; ++i) { c1[i] /= norm1; }
-
-    // c2 = c0 x c1 (ensures right-handed, det=1)
-    c2[0] = c0[1]*c1[2] - c0[2]*c1[1];
-    c2[1] = c0[2]*c1[0] - c0[0]*c1[2];
-    c2[2] = c0[0]*c1[1] - c0[1]*c1[0];
-
-    for (int r = 0; r < 3; ++r) {
-        avg_rotation[r][0] = c0[r];
-        avg_rotation[r][1] = c1[r];
-        avg_rotation[r][2] = c2[r];
-    }
-}
-
-bool OptimizeTransformMultiStart(const std::vector<FusionPairData>& pairs,
-                                 const FusionConfig& fusion,
-                                 const double init_rotation[3][3],
-                                 const double init_translation[3],
-                                 std::size_t objective_sample_points,
-                                 double optimized_rotation[3][3],
-                                 double optimized_translation[3],
-                                 double& optimized_global_rmse,
-                                 std::string& error) {
-    const double kDegToRad = 3.14159265358979323846 / 180.0;
+    const Eigen::Vector3d mean_translation =
+        sum_translation / static_cast<double>(std::max<std::size_t>(1, candidates.size()));
 
     for (int r = 0; r < 3; ++r) {
         for (int c = 0; c < 3; ++c) {
-            optimized_rotation[r][c] = init_rotation[r][c];
+            avg_rotation[r][c] = projected_rotation(r, c);
         }
-        optimized_translation[r] = init_translation[r];
+        avg_translation[r] = mean_translation(r);
+    }
+}
+
+/**
+ * @brief 计算当前融合目标在 6 自由度参数上的有限差分梯度
+ * @param pairs 预处理后的融合点云对集合
+ * @param fusion 融合配置参数
+ * @param base_rotation 当前旋转矩阵
+ * @param base_translation 当前平移向量
+ * @param objective_sample_points 目标函数采样点数上限
+ * @param base_rmse 当前位姿下的全局 RMSE
+ * @param gradient 输出 6 维梯度，前三维为旋转扰动，后三维为平移扰动
+ * @param error 失败时输出错误信息
+ * @return true 表示梯度估计成功，false 表示估计失败
+ *
+ * @description 工作流执行步骤：
+ *   1. 依据最小步长阈值为旋转与平移分别构造有限差分扰动量
+ *   2. 逐个维度对当前位姿施加微小正向扰动
+ *   3. 重新计算扰动后位姿的全局截尾 RMSE
+ *   4. 使用前向差分公式 (f(x+eps)-f(x))/eps 估计该维度梯度
+ *   5. 输出完整 6 维梯度，供后续 Gauss-Newton 更新使用
+ */
+bool ComputeFiniteDifferenceGradient(const std::vector<FusionPairData>& pairs,
+                                     const FusionConfig& fusion,
+                                     const double base_rotation[3][3],
+                                     const double base_translation[3],
+                                     std::size_t objective_sample_points,
+                                     double base_rmse,
+                                     double gradient[6],
+                                     std::string& error) {
+    const double rotation_eps = std::max(
+        fusion.optimization_min_rotation_step_deg * (3.14159265358979323846 / 180.0), 1e-6);
+    const double translation_eps = std::max(fusion.optimization_min_translation_step, 1e-6);
+
+    for (int dim = 0; dim < 6; ++dim) {
+        // 前三维使用 Rodrigues 小角度扰动旋转，后三维直接扰动平移。
+        double trial_rotation[3][3] = {{0.0}};
+        double trial_translation[3] = {
+            base_translation[0],
+            base_translation[1],
+            base_translation[2]
+        };
+
+        if (dim < 3) {
+            double delta_axis_angle[3] = {0.0, 0.0, 0.0};
+            delta_axis_angle[dim] = rotation_eps;
+            ComposeRotationDelta(base_rotation, delta_axis_angle, trial_rotation);
+        } else {
+            CopyMat3(base_rotation, trial_rotation);
+            trial_translation[dim - 3] += translation_eps;
+        }
+
+        double trial_rmse = std::numeric_limits<double>::infinity();
+        std::string trial_error;
+        if (!ComputeGlobalRmseForTransform(pairs,
+                                           fusion,
+                                           trial_rotation,
+                                           trial_translation,
+                                           objective_sample_points,
+                                           trial_rmse,
+                                           trial_error)) {
+            error = trial_error;
+            return false;
+        }
+
+        const double eps = dim < 3 ? rotation_eps : translation_eps;
+        gradient[dim] = (trial_rmse - base_rmse) / eps;
+    }
+
+    return true;
+}
+
+/**
+ * @brief 使用有限差分 Gauss-Newton 优化融合位姿
+ * @param pairs 预处理后的融合点云对集合
+ * @param fusion 融合配置参数
+ * @param init_rotation 初始旋转矩阵
+ * @param init_translation 初始平移向量
+ * @param objective_sample_points 优化阶段每对点云的采样点数上限
+ * @param optimized_rotation 输出优化后的旋转矩阵
+ * @param optimized_translation 输出优化后的平移向量
+ * @param optimized_global_rmse 输出优化后的全局 RMSE
+ * @param error 失败时输出错误信息
+ * @return true 表示优化成功，false 表示优化失败
+ *
+ * @description 工作流执行步骤：
+ *   1. 以 SVD 旋转均值和平移均值作为初始位姿，计算初始全局 RMSE
+ *   2. 在每轮迭代中通过有限差分估计 6 自由度梯度
+ *   3. 使用梯度外积加阻尼项构造近似 Hessian，并求解增量方向
+ *   4. 采用回溯线搜索逐步缩小步长，直到找到可降低全局 RMSE 的更新
+ *   5. 若本轮无可接受更新，则增大阻尼；当步长已足够小或达到最大迭代次数时停止
+ */
+bool OptimizeTransformGaussNewton(const std::vector<FusionPairData>& pairs,
+                                  const FusionConfig& fusion,
+                                  const double init_rotation[3][3],
+                                  const double init_translation[3],
+                                  std::size_t objective_sample_points,
+                                  double optimized_rotation[3][3],
+                                  double optimized_translation[3],
+                                  double& optimized_global_rmse,
+                                  std::string& error) {
+    const double kDegToRad = 3.14159265358979323846 / 180.0;
+    CopyMat3(init_rotation, optimized_rotation);
+    for (int i = 0; i < 3; ++i) {
+        optimized_translation[i] = init_translation[i];
     }
 
     if (!ComputeGlobalRmseForTransform(pairs,
@@ -1685,86 +2283,133 @@ bool OptimizeTransformMultiStart(const std::vector<FusionPairData>& pairs,
         return false;
     }
 
-    double rot_step = fusion.optimization_rotation_step_deg * kDegToRad;
-    double trans_step = fusion.optimization_translation_step;
-    const double rot_min = fusion.optimization_min_rotation_step_deg * kDegToRad;
-    const double trans_min = fusion.optimization_min_translation_step;
+    double damping = 1e-3;
+    const double min_rotation_step = fusion.optimization_min_rotation_step_deg * kDegToRad;
+    const double min_translation_step = fusion.optimization_min_translation_step;
 
     for (int iter = 0; iter < fusion.optimization_max_iterations; ++iter) {
-        bool improved = false;
+        // 使用有限差分梯度构造带阻尼项的近似 Hessian，提升数值稳定性。
+        double gradient[6] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+        if (!ComputeFiniteDifferenceGradient(pairs,
+                                             fusion,
+                                             optimized_rotation,
+                                             optimized_translation,
+                                             objective_sample_points,
+                                             optimized_global_rmse,
+                                             gradient,
+                                             error)) {
+            return false;
+        }
 
-        for (int dim = 0; dim < 6; ++dim) {
-            for (int sign = -1; sign <= 1; sign += 2) {
-                double trial_rotation[3][3] = {{0.0}};
-                double trial_translation[3] = {
-                    optimized_translation[0],
-                    optimized_translation[1],
-                    optimized_translation[2]
-                };
+        double hessian[6][6] = {{0.0}};
+        for (int r = 0; r < 6; ++r) {
+            for (int c = 0; c < 6; ++c) {
+                hessian[r][c] = gradient[r] * gradient[c];
+            }
+            hessian[r][r] += damping;
+        }
 
-                if (dim < 3) {
-                    double delta_axis_angle[3] = {0.0, 0.0, 0.0};
-                    delta_axis_angle[dim] = static_cast<double>(sign) * rot_step;
-                    ComposeRotationDelta(optimized_rotation,
-                                         delta_axis_angle,
-                                         trial_rotation);
-                } else {
-                    for (int r = 0; r < 3; ++r) {
-                        for (int c = 0; c < 3; ++c) {
-                            trial_rotation[r][c] = optimized_rotation[r][c];
-                        }
-                    }
-                    trial_translation[dim - 3] += static_cast<double>(sign) * trans_step;
-                }
+        double inverse_hessian[6][6] = {{0.0}};
+        if (!InvertMat6(hessian, inverse_hessian)) {
+            damping *= 10.0;
+            continue;
+        }
 
-                double trial_rmse = std::numeric_limits<double>::infinity();
-                std::string trial_error;
-                if (!ComputeGlobalRmseForTransform(pairs,
-                                                   fusion,
-                                                   trial_rotation,
-                                                   trial_translation,
-                                                   objective_sample_points,
-                                                   trial_rmse,
-                                                   trial_error)) {
-                    continue;
-                }
-
-                if (trial_rmse + 1e-12 < optimized_global_rmse) {
-                    for (int r = 0; r < 3; ++r) {
-                        for (int c = 0; c < 3; ++c) {
-                            optimized_rotation[r][c] = trial_rotation[r][c];
-                        }
-                    }
-                    for (int k = 0; k < 3; ++k) {
-                        optimized_translation[k] = trial_translation[k];
-                    }
-                    optimized_global_rmse = trial_rmse;
-                    improved = true;
-                }
+        double delta[6] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+        for (int r = 0; r < 6; ++r) {
+            for (int c = 0; c < 6; ++c) {
+                delta[r] -= inverse_hessian[r][c] * gradient[c];
             }
         }
 
-        if (!improved) {
-            rot_step *= 0.5;
-            trans_step *= 0.5;
-            if (rot_step < rot_min && trans_step < trans_min) {
+        double step_scale = 1.0;
+        bool accepted = false;
+        while (step_scale >= 1e-3) {
+            double trial_rotation[3][3] = {{0.0}};
+            double trial_translation[3] = {
+                optimized_translation[0],
+                optimized_translation[1],
+                optimized_translation[2]
+            };
+
+            double delta_axis_angle[3] = {
+                delta[0] * step_scale,
+                delta[1] * step_scale,
+                delta[2] * step_scale
+            };
+            ComposeRotationDelta(optimized_rotation, delta_axis_angle, trial_rotation);
+            for (int i = 0; i < 3; ++i) {
+                trial_translation[i] += delta[i + 3] * step_scale;
+            }
+
+            double trial_rmse = std::numeric_limits<double>::infinity();
+            std::string trial_error;
+            if (ComputeGlobalRmseForTransform(pairs,
+                                              fusion,
+                                              trial_rotation,
+                                              trial_translation,
+                                              objective_sample_points,
+                                              trial_rmse,
+                                              trial_error) &&
+                trial_rmse + 1e-12 < optimized_global_rmse) {
+                CopyMat3(trial_rotation, optimized_rotation);
+                for (int i = 0; i < 3; ++i) {
+                    optimized_translation[i] = trial_translation[i];
+                }
+                optimized_global_rmse = trial_rmse;
+                damping = std::max(1e-6, damping * 0.5);
+                accepted = true;
+                break;
+            }
+
+            step_scale *= 0.5;
+        }
+
+        const double rotation_step_norm =
+            std::sqrt(delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2]);
+        const double translation_step_norm =
+            std::sqrt(delta[3] * delta[3] + delta[4] * delta[4] + delta[5] * delta[5]);
+
+        if (!accepted) {
+            damping *= 10.0;
+            if (rotation_step_norm < min_rotation_step &&
+                translation_step_norm < min_translation_step) {
                 break;
             }
         }
 
         if ((iter + 1) % 5 == 0 || iter == fusion.optimization_max_iterations - 1) {
-            std::cout << "[Fusion] optimization iter=" << (iter + 1)
+            std::cout << "[Fusion] gauss-newton iter=" << (iter + 1)
                       << " best_rmse=" << std::fixed << std::setprecision(6)
                       << optimized_global_rmse
-                      << " rot_step(rad)=" << rot_step
-                      << " trans_step=" << trans_step
+                      << " damping=" << damping
+                      << " step_rot=" << rotation_step_norm
+                      << " step_trans=" << translation_step_norm
                       << std::endl;
         }
+    }
+
+    if (std::fabs(DeterminantMat3(optimized_rotation) - 1.0) > 1e-3) {
+        error = "Optimized rotation determinant deviates from SO(3).";
+        return false;
     }
 
     return true;
 }
 
+/**
+ * @brief 执行 fusion 模式的多位姿融合求解
+ * @param config 应用配置，包含候选目录、数据目录、优化参数和输出参数
+ * @param error 失败时输出错误信息
+ * @return true 表示融合成功，false 表示融合失败
+ *
+ * @description 工作流执行步骤：
+ *   1. 递归扫描候选结果目录，加载多个 registration_result.json
+ *   2. 按需读取各候选 log.txt 中的 refine RMSE，并过滤低质量候选
+ *   3. 根据候选编号或日志中的路径信息，映射并加载对应 source/target 点云
+ *   4. 计算每个候选在全局目标上的初始评分，并基于全部候选构造 SVD 平均初值
+ *   5. 调用有限差分 Gauss-Newton 优化统一的 source->target 刚体变换，并将结果写入融合输出 JSON
+ */
 bool RunFusionMode(const AppConfig& config,
                    std::string& error) {
     const std::filesystem::path candidate_root(config.fusion.candidate_result_dir);
@@ -1781,6 +2426,7 @@ bool RunFusionMode(const AppConfig& config,
     std::size_t skipped_refine_rmse_threshold = 0;
     std::error_code ec;
     for (const auto& entry : std::filesystem::recursive_directory_iterator(candidate_root, ec)) {
+        // 第一阶段只做候选扫描与过滤，先把明显无效项剔除。
         if (ec) {
             error = "Failed to iterate candidate result directory: " + candidate_root.string();
             return false;
@@ -1851,6 +2497,7 @@ bool RunFusionMode(const AppConfig& config,
     auto load_cloud_cached = [&](const std::filesystem::path& cloud_path,
                                  PCLCloudPtr& cloud,
                                  std::string& load_error) -> bool {
+        // 多个候选可能引用同一份点云文件，这里按绝对路径缓存复用。
         const std::string key = std::filesystem::absolute(cloud_path).lexically_normal().string();
         auto it = cloud_cache.find(key);
         if (it != cloud_cache.end()) {
@@ -1873,6 +2520,7 @@ bool RunFusionMode(const AppConfig& config,
     std::size_t prepared_pair_index = 0;
     const std::size_t fusion_pair_cloud_limit =
         std::max<std::size_t>(200000, config.fusion.max_sample_points_per_pair * 8);
+    // 第二阶段把候选变换映射回真实点云对，并提前完成有限点过滤与 KD-tree 构建。
     for (const auto& pair_candidate : candidates) {
         ++prepared_pair_index;
         std::filesystem::path source_path;
@@ -1978,25 +2626,25 @@ bool RunFusionMode(const AppConfig& config,
                   << initial_rmse << std::endl;
     }
 
-    // ---- Step 2: optimize from a single averaged starting point ----
+    // ---- Step 2: optimize from an SVD-projected mean rotation + mean translation ----
     double avg_rotation[3][3] = {{0.0}};
     double avg_translation[3] = {0.0, 0.0, 0.0};
-    AverageCandidateTransforms(candidates, avg_rotation, avg_translation);
-    std::cout << "[Fusion] Starting single-point optimization from averaged transform." << std::endl;
+    AverageCandidateTransformsSvd(candidates, avg_rotation, avg_translation);
+    std::cout << "[Fusion] Starting Gauss-Newton optimization from SVD mean transform." << std::endl;
 
     double best_rotation[3][3] = {{0.0}};
     double best_translation[3] = {0.0, 0.0, 0.0};
     double best_global_rmse = std::numeric_limits<double>::infinity();
     std::string optimize_error;
-    if (!OptimizeTransformMultiStart(fusion_pairs,
-                                     config.fusion,
-                                     avg_rotation,
-                                     avg_translation,
-                                     config.fusion.optimization_sample_points_per_pair,
-                                     best_rotation,
-                                     best_translation,
-                                     best_global_rmse,
-                                     optimize_error)) {
+    if (!OptimizeTransformGaussNewton(fusion_pairs,
+                                      config.fusion,
+                                      avg_rotation,
+                                      avg_translation,
+                                      config.fusion.optimization_sample_points_per_pair,
+                                      best_rotation,
+                                      best_translation,
+                                      best_global_rmse,
+                                      optimize_error)) {
         error = "Fusion optimization failed: " + optimize_error;
         return false;
     }
@@ -2010,7 +2658,7 @@ bool RunFusionMode(const AppConfig& config,
     output_json["transform_source_to_target"] =
         RigidTransformToJson(best_rotation, best_translation);
     output_json["fusion_meta"] = {
-        {"method", "averaged_start_coordinate_descent"},
+        {"method", "svd_rotation_mean_finite_difference_gauss_newton"},
         {"candidate_count", candidates.size()},
         {"global_rmse", best_global_rmse},
         {"trim_ratio", config.fusion.trim_ratio},
@@ -2037,6 +2685,15 @@ bool RunFusionMode(const AppConfig& config,
     return true;
 }
 
+/**
+ * @brief 将 PCL 点云保存为 PLY 文件
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 bool SavePCLCloudAsPly(const PCLCloudPtr& cloud,
                        const std::filesystem::path& output_path,
                        std::string& error) {
@@ -2053,6 +2710,15 @@ bool SavePCLCloudAsPly(const PCLCloudPtr& cloud,
     return true;
 }
 
+/**
+ * @brief 移除无效点并生成有限点云
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 PCLCloudPtr MakeFiniteCloud(const PCLCloudPtr& input) {
     if (!input) {
         return nullptr;
@@ -2072,6 +2738,15 @@ PCLCloudPtr MakeFiniteCloud(const PCLCloudPtr& input) {
     return finite_cloud;
 }
 
+/**
+ * @brief 限制点云数量以控制采样规模
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 PCLCloudPtr LimitCloudPoints(const PCLCloudPtr& input,
                              std::size_t max_points) {
     if (!input || input->empty() || max_points == 0 || input->size() <= max_points) {
@@ -2093,6 +2768,15 @@ PCLCloudPtr LimitCloudPoints(const PCLCloudPtr& input,
     return limited;
 }
 
+/**
+ * @brief 计算最近邻评估指标
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 bool ComputeNearestNeighborMetrics(const PCLCloudPtr& query_cloud,
                                    const PCLCloudPtr& reference_cloud,
                                    std::size_t max_sample_points,
@@ -2149,6 +2833,15 @@ bool ComputeNearestNeighborMetrics(const PCLCloudPtr& query_cloud,
     return true;
 }
 
+/**
+ * @brief 按指定坐标轴镜像点云
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 void MirrorCloudByNegatingX(PCLCloudPtr& cloud,
                             const MirrorAxes& axes,
                             bool save_mirrored_cloud) {
@@ -2197,6 +2890,15 @@ void MirrorCloudByNegatingX(PCLCloudPtr& cloud,
     std::cout << "Saved mirrored source cloud: " << mirror_cloud_path.string() << std::endl;
 }
 
+/**
+ * @brief 求刚体变换的逆变换
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 void InvertRigidTransform(const double rotation[3][3],
                           const double translation[3],
                           double inverse_rotation[3][3],
@@ -2214,6 +2916,15 @@ void InvertRigidTransform(const double rotation[3][3],
     }
 }
 
+/**
+ * @brief 从结果 JSON 提取刚体变换
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 bool ExtractRigidTransformFromResultJson(const std::string& result_json,
                                          double rotation[3][3],
                                          double translation[3],
@@ -2267,6 +2978,15 @@ bool ExtractRigidTransformFromResultJson(const std::string& result_json,
     return true;
 }
 
+/**
+ * @brief 从配准结果构造初始位姿 JSON
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 bool BuildInitialGuessJsonFromResult(const std::string& result_json,
                                      std::string& initial_transform_json,
                                      std::string& error) {
@@ -2307,6 +3027,15 @@ bool BuildInitialGuessJsonFromResult(const std::string& result_json,
     return true;
 }
 
+/**
+ * @brief 执行单次点云对配准
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 bool RunCloudPairRegistration(const std::shared_ptr<HVPointCloud>& source_cloud,
                               const std::shared_ptr<HVPointCloud>& target_cloud,
                               const RegistrationParams& registration_params,
@@ -2377,6 +3106,15 @@ bool RunCloudPairRegistration(const std::shared_ptr<HVPointCloud>& source_cloud,
     return true;
 }
 
+/**
+ * @brief 按刚体变换生成变换后点云
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 PCLCloudPtr TransformCloudByRt(
     const PCLCloudPtr& source_cloud,
     const double rotation[3][3],
@@ -2407,6 +3145,15 @@ PCLCloudPtr TransformCloudByRt(
     return transformed;
 }
 
+/**
+ * @brief 在原始点云上评估配准结果
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 bool EvaluateResultOnRawClouds(const std::string& result_json,
                                const PCLCloudPtr& source_cloud_raw,
                                const PCLCloudPtr& target_cloud_raw,
@@ -2429,6 +3176,7 @@ bool EvaluateResultOnRawClouds(const std::string& result_json,
                          source_to_target_rotation,
                          source_to_target_translation);
 
+    // 对原始 source 点云施加最终 source->target 变换，并导出可视化结果。
     const PCLCloudPtr transformed_source = TransformCloudByRt(source_cloud_raw,
                                                               source_to_target_rotation,
                                                               source_to_target_translation);
@@ -2444,6 +3192,15 @@ bool EvaluateResultOnRawClouds(const std::string& result_json,
                                          error);
 }
 
+/**
+ * @brief 打印阶段评估指标
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 void PrintStageEvaluationMetrics(const std::string& stage_name,
                                  const DistanceMetrics& metrics) {
     std::cout << std::fixed << std::setprecision(6);
@@ -2455,6 +3212,15 @@ void PrintStageEvaluationMetrics(const std::string& stage_name,
               << std::endl;
 }
 
+/**
+ * @brief 将刚体变换转换为 JSON 对象
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 nlohmann::json RigidTransformToJson(const double rotation[3][3],
                                     const double translation[3]) {
     return {
@@ -2470,6 +3236,15 @@ nlohmann::json RigidTransformToJson(const double rotation[3][3],
     };
 }
 
+/**
+ * @brief 保存最终变换结果与点云文件
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 bool SaveFinalTransformAndCloud(const PCLCloudPtr& source_cloud_raw,
                                 const std::string& result_json,
                                 const OutputConfig& output_config,
@@ -2556,6 +3331,15 @@ bool SaveFinalTransformAndCloud(const PCLCloudPtr& source_cloud_raw,
     return true;
 }
 
+/**
+ * @brief 判断当前阶段是否需要执行评估
+ * @return 见函数返回类型定义
+ *
+ * @description 工作流执行步骤：
+ *   1. 根据函数输入执行对应的数据处理或状态判断
+ *   2. 在必要时完成参数校验、格式转换或中间结果构建
+ *   3. 输出处理结果，或在失败时通过返回值/错误信息上报状态
+ */
 bool ShouldEvaluateStage(const EvaluationConfig& evaluation,
                          bool is_coarse_stage) {
     if (!evaluation.enabled) {
@@ -2567,12 +3351,26 @@ bool ShouldEvaluateStage(const EvaluationConfig& evaluation,
 
 }  // namespace
 
+/**
+ * @brief 程序主函数入口
+ * @param argc 命令行参数个数
+ * @param argv 命令行参数数组，argv[1] 可传入配置文件路径
+ * @return 程序退出码：0 表示成功，-1 表示失败
+ *
+ * @description 工作流执行步骤：
+ *   1. 初始化工作目录与日志系统，并解析命令行中的配置文件路径
+ *   2. 加载 JSON 配置，判断当前运行模式为 registration 或 fusion
+ *   3. 若为 fusion 模式，则执行多位姿融合流程并输出融合结果
+ *   4. 若为 registration 模式，则执行点云加载、预处理、粗配准、精配准与评估
+ *   5. 保存最终结果文件，并将执行状态打印到控制台与日志文件
+ */
 int main(int argc, char** argv) {
     EnsureWorkingDirectoryAtProjectRoot(argc, argv);
 
     // Create logger manager and auto-handle log file lifecycle.
     LogManager log_manager;
 
+    // 统一先加载配置；后续 registration / fusion 两条主流程都依赖同一份解析结果。
     const std::filesystem::path config_path = ResolveConfigPath(argc, argv);
     AppConfig config;
     std::string config_error;
@@ -2585,6 +3383,7 @@ int main(int argc, char** argv) {
     }
 
     if (config.run_mode == "fusion") {
+        // fusion 模式直接走多位姿联合优化，不进入单对点云配准主流程。
         std::cout << "Loaded config: " << config_path.string() << std::endl;
         std::cout << "Run mode: fusion" << std::endl;
 
@@ -2607,6 +3406,7 @@ int main(int argc, char** argv) {
               << ", run_refine=" << (config.pipeline.run_refine ? "true" : "false")
               << std::endl;
 
+    // registration 模式先加载原始点云，再视配置执行镜像、滤波和多阶段配准。
     PCLCloudPtr left_raw;
     PCLCloudPtr right_raw;
     std::string load_error;
@@ -2776,4 +3576,5 @@ int main(int argc, char** argv) {
     std::cout << "Final output stage: " << final_stage_name << std::endl;
     return 0;
 }
+
 
